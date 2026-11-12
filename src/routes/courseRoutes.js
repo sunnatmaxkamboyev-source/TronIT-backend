@@ -1,4 +1,5 @@
-import { Router } from "express";
+
+import express from "express";
 
 import {
   createCourse,
@@ -9,16 +10,36 @@ import {
 } from "../controllers/courseController.js";
 
 import { protect, adminOnly } from "../middlewares/authMiddleware.js";
+import validate from "../middlewares/validateMiddleware.js";
 
-const router = Router();
+import {
+  createCourseSchema,
+  updateCourseSchema,
+} from "../validators/courseValidator.js";
 
+const router = express.Router();
 
+// Public routes
 router.get("/", getCourses);
 router.get("/:id", getCourseById);
 
+// Admin routes
+router.post(
+  "/",
+  protect,
+  adminOnly,
+  validate(createCourseSchema),
+  createCourse
+);
 
-router.post("/", protect, adminOnly, createCourse);
-router.patch("/:id", protect, adminOnly, updateCourse);
+router.patch(
+  "/:id",
+  protect,
+  adminOnly,
+  validate(updateCourseSchema),
+  updateCourse
+);
+
 router.delete("/:id", protect, adminOnly, deleteCourse);
 
 export default router;

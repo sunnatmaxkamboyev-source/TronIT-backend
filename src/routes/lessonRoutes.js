@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express from "express";
 
 import {
   uploadLesson,
@@ -7,29 +7,33 @@ import {
   streamLessonVideo,
 } from "../controllers/lessonController.js";
 
+import { protect, adminOnly } from "../middlewares/authMiddleware.js";
 import upload from "../middlewares/uploadMiddleware.js";
+import validate from "../middlewares/validateMiddleware.js";
 
 import {
-  protect,
-  adminOnly,
-} from "../middlewares/authMiddleware.js";
+  createLessonSchema,
+} from "../validators/lessonValidator.js";
 
-const router = Router();
+const router = express.Router();
 
+// Barcha darslarni olish
 router.get("/", getLessons);
 
+// Bitta darsni olish
 router.get("/:id", getLessonById);
 
-
-router.get("/:id/video", protect, streamLessonVideo);
-
- 
+// Yangi dars va video yuklash
 router.post(
-  "/upload",
+  "/",
   protect,
   adminOnly,
   upload.single("video"),
+  validate(createLessonSchema),
   uploadLesson
 );
+
+// Video streaming
+router.get("/:id/video", protect, streamLessonVideo);
 
 export default router;

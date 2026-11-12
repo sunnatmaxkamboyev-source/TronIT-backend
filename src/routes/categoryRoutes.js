@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express from "express";
 
 import {
   createCategory,
@@ -8,25 +8,36 @@ import {
   deleteCategory,
 } from "../controllers/categoryController.js";
 
+import { protect, adminOnly } from "../middlewares/authMiddleware.js";
+import validate from "../middlewares/validateMiddleware.js";
+
 import {
-  protect,
-  adminOnly,
-} from "../middlewares/authMiddleware.js";
+  createCategorySchema,
+  updateCategorySchema,
+} from "../validators/categoryValidator.js";
 
-const router = Router();
+const router = express.Router();
 
-
+// Public routes
 router.get("/", getCategories);
-
-
 router.get("/:id", getCategoryById);
 
+// Admin routes
+router.post(
+  "/",
+  protect,
+  adminOnly,
+  validate(createCategorySchema),
+  createCategory
+);
 
-router.post("/", protect, adminOnly, createCategory);
-
-
-router.patch("/:id", protect, adminOnly, updateCategory);
-
+router.patch(
+  "/:id",
+  protect,
+  adminOnly,
+  validate(updateCategorySchema),
+  updateCategory
+);
 
 router.delete("/:id", protect, adminOnly, deleteCategory);
 
