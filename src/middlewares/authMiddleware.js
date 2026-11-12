@@ -1,15 +1,9 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
-
 export const protect = async (req, res, next) => {
   try {
-    let token;
-
-   
-    if (req.cookies?.tronit_token) {
-      token = req.cookies.tronit_token;
-    }
+    let token = req.cookies?.tronit_token;
 
     
     if (
@@ -26,12 +20,17 @@ export const protect = async (req, res, next) => {
       });
     }
 
+    if (!process.env.JWT_SECRET) {
+      throw new Error("JWT_SECRET sozlanmagan");
+    }
+
+    
     const decoded = jwt.verify(
       token,
       process.env.JWT_SECRET
     );
 
-    
+  
     const user = await User.findById(decoded.id);
 
     if (!user || !user.isActive) {
@@ -41,7 +40,6 @@ export const protect = async (req, res, next) => {
       });
     }
 
-    
     req.user = user;
 
     next();
@@ -62,10 +60,10 @@ export const protect = async (req, res, next) => {
 
 
 export const adminOnly = (req, res, next) => {
-  if (req.user?.role !== "admin") {
+  if (!req.user || req.user.role !== "admin") {
     return res.status(403).json({
       success: false,
-      message: "Bu sahifaga faqat admin kira oladi",
+      message: "Bu amal faqat admin uchun",
     });
   }
 
