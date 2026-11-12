@@ -5,15 +5,18 @@ import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 
-
 import authRoutes from "./routes/authRoutes.js";
+import categoryRoutes from "./routes/categoryRoutes.js";
+import courseRoutes from "./routes/courseRoutes.js";
 import lessonRoutes from "./routes/lessonRoutes.js";
+import enrollmentRoutes from "./routes/enrollmentRoutes.js";
+import progressRoutes from "./routes/progressRoutes.js";
+import studentRoutes from "./routes/studentRoutes.js";
 
 const app = express();
 
 
 app.use(helmet());
-
 
 app.use(
   cors({
@@ -24,7 +27,7 @@ app.use(
 
 
 app.use(express.json({ limit: "10kb" }));
-app.use(express.urlencoded({ extended: true, limit: "10kb" }));
+app.use(express.urlencoded({ extended: true }));
 
 
 app.use(cookieParser());
@@ -38,11 +41,11 @@ if (process.env.NODE_ENV === "development") {
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 100,
-  standardHeaders: true,
+  standardHeaders: "draft-8",
   legacyHeaders: false,
   message: {
     success: false,
-    message: "Juda ko'p so'rov yuborildi. Keyinroq qayta urinib ko'ring.",
+    message: "Juda ko'p so'rov yuborildi. Keyinroq urinib ko'ring.",
   },
 });
 
@@ -52,58 +55,73 @@ app.use("/api", apiLimiter);
 app.get("/", (req, res) => {
   res.status(200).json({
     success: true,
-    message: "TronIT API ishlamoqda!",
-    timestamp: new Date().toISOString(),
+    message: "TronIT API ishlayapti 🚀",
+    environment: process.env.NODE_ENV,
   });
 });
 
 
+if (process.env.NODE_ENV === "development") {
+  app.post("/api/debug/body", (req, res) => {
+    res.status(200).json({
+      success: true,
+      bodyReceived: req.body !== undefined,
+      contentType: req.headers["content-type"],
+      body: req.body,
+    });
+  });
+}
+
+
 app.use("/api/auth", authRoutes);
-
-
+app.use("/api/categories", categoryRoutes);
+app.use("/api/courses", courseRoutes);
 app.use("/api/lessons", lessonRoutes);
+app.use("/api/enrollments", enrollmentRoutes);
+app.use("/api/progress", progressRoutes);
+app.use("/api/student", studentRoutes);
 
 
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: `Route topilmadi: ${req.method} ${req.originalUrl}`,
+    message: `${req.method} ${req.originalUrl} topilmadi`,
   });
 });
 
 
 app.use((err, req, res, next) => {
-  console.error("SERVER ERROR:", err);
+  console.error("ERROR:", err);
 
-  if (res.headersSent) {
-    return next(err);
-  }
-
-
-  if (err.name === "MulterError") {
+  if (err.type === "entity.parse.failed") {
     return res.status(400).json({
       success: false,
-      message:
-        err.code === "LIMIT_FILE_SIZE"
-          ? "Video hajmi 500 MB dan oshmasligi kerak"
-          : err.message,
+      message: "JSON formati noto'g'ri",
     });
   }
 
-  
-  if (err.message === "Faqat MP4 formatidagi videolar qabul qilinadi!") {
+  if (err.name === "MulterError") {
     return res.status(400).json({
       success: false,
       message: err.message,
     });
   }
 
-  res.status(err.statusCode || err.status || 500).json({
+  if (err.message?.includes("Faqat MP4")) {
+    return res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+
+  const statusCode = err.statusCode || err.status || 500;
+
+  return res.status(statusCode).json({
     success: false,
     message:
-      process.env.NODE_ENV === "development"
-        ? err.message
-        : "Serverda ichki xatolik yuz berdi",
+      statusCode === 500
+        ? "Serverda ichki xatolik yuz berdi"
+        : err.message,
   });
 });
 

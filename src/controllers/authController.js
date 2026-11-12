@@ -1,7 +1,7 @@
 import User from "../models/User.js";
 import jwt from "jsonwebtoken";
 
-
+// JWT token yaratish
 const generateToken = (userId) => {
   if (!process.env.JWT_SECRET) {
     throw new Error("JWT_SECRET .env faylida mavjud emas");
@@ -16,7 +16,7 @@ const generateToken = (userId) => {
   );
 };
 
-
+// Cookie sozlamalari
 const cookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
@@ -25,25 +25,25 @@ const cookieOptions = {
   path: "/",
 };
 
-
+// Token va user yuborish
 const sendToken = (user, statusCode, res) => {
   const token = generateToken(user._id);
 
   res.cookie("tronit_token", token, cookieOptions);
 
-  user.password = undefined;
+  const safeUser = user.toObject();
+  delete safeUser.password;
 
-  res.status(statusCode).json({
+  return res.status(statusCode).json({
     success: true,
-    user,
+    user: safeUser,
   });
 };
 
-
+// REGISTER
 export const register = async (req, res, next) => {
   try {
-    const { firstName, lastName, email, password } = req.body;
-
+    const { firstName, lastName, email, password } = req.body || {};
 
     if (!firstName || !lastName || !email || !password) {
       return res.status(400).json({
@@ -52,7 +52,6 @@ export const register = async (req, res, next) => {
       });
     }
 
-    
     const normalizedEmail = email.trim().toLowerCase();
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -64,7 +63,6 @@ export const register = async (req, res, next) => {
       });
     }
 
-    
     if (password.length < 8) {
       return res.status(400).json({
         success: false,
@@ -72,7 +70,6 @@ export const register = async (req, res, next) => {
       });
     }
 
-    
     const existingUser = await User.findOne({
       email: normalizedEmail,
     });
@@ -84,7 +81,6 @@ export const register = async (req, res, next) => {
       });
     }
 
-
     const user = await User.create({
       firstName: firstName.trim(),
       lastName: lastName.trim(),
@@ -92,7 +88,7 @@ export const register = async (req, res, next) => {
       password,
     });
 
-    sendToken(user, 201, res);
+    return sendToken(user, 201, res);
   } catch (error) {
     if (error.code === 11000) {
       return res.status(409).json({
@@ -105,10 +101,10 @@ export const register = async (req, res, next) => {
   }
 };
 
-
+// LOGIN
 export const login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = req.body || {};
 
     if (!email || !password) {
       return res.status(400).json({
@@ -117,9 +113,18 @@ export const login = async (req, res, next) => {
       });
     }
 
+    if (
+      typeof email !== "string" ||
+      typeof password !== "string"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Email va parol formati noto'g'ri",
+      });
+    }
+
     const normalizedEmail = email.trim().toLowerCase();
 
-    
     const user = await User.findOne({
       email: normalizedEmail,
     }).select("+password");
@@ -130,7 +135,6 @@ export const login = async (req, res, next) => {
         message: "Email yoki parol noto'g'ri",
       });
     }
-
 
     const isPasswordCorrect = await user.comparePassword(password);
 
@@ -148,32 +152,26 @@ export const login = async (req, res, next) => {
       });
     }
 
-    
     user.lastLogin = new Date();
     await user.save();
 
-    sendToken(user, 200, res);
+    return sendToken(user, 200, res);
   } catch (error) {
     next(error);
   }
 };
 
-
+// LOGOUT
 export const logout = (req, res) => {
-  res.clearCookie("tronit_token", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-  });
+  res.clearCookie("tronit_token", cookieOptions);
 
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     message: "Tizimdan muvaffaqiyatli chiqdingiz",
   });
 };
 
-
+// GET CURRENT USER
 export const getMe = async (req, res, next) => {
   try {
     const user = await User.findById(req.user._id);
@@ -185,7 +183,7 @@ export const getMe = async (req, res, next) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       user,
     });

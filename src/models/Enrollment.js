@@ -1,4 +1,4 @@
-    import mongoose from "mongoose";
+import mongoose from "mongoose";
 
 const enrollmentSchema = new mongoose.Schema(
   {
@@ -33,7 +33,7 @@ const enrollmentSchema = new mongoose.Schema(
     paymentStatus: {
       type: String,
       enum: ["free", "pending", "paid", "refunded"],
-      default: "pending",
+      default: "free",
     },
 
     amountPaid: {
@@ -49,7 +49,6 @@ const enrollmentSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    versionKey: false,
   }
 );
 
@@ -59,15 +58,6 @@ enrollmentSchema.index(
   { unique: true }
 );
 
-
-enrollmentSchema.index({ student: 1, status: 1 });
-
-
-enrollmentSchema.index({ course: 1, enrolledAt: -1 });
-
-const Enrollment = mongoose.model(
-  "Enrollment",
-  enrollmentSchema
-);
+const Enrollment = mongoose.model("Enrollment", enrollmentSchema);
 
 export default Enrollment;

@@ -1,5 +1,8 @@
+
 import fs from "fs/promises";
 import path from "path";
+import { createReadStream } from "fs";
+import mongoose from "mongoose";
 
 import Lesson from "../models/Lesson.js";
 import Course from "../models/Course.js";
@@ -34,6 +37,15 @@ export const uploadLesson = async (req, res, next) => {
       });
     }
 
+    if (!mongoose.isValidObjectId(course)) {
+      await fs.unlink(req.file.path);
+
+      return res.status(400).json({
+        success: false,
+        message: "Course ID formati noto'g'ri",
+      });
+    }
+
     const existingCourse = await Course.findById(course);
 
     if (!existingCourse) {
@@ -63,7 +75,7 @@ export const uploadLesson = async (req, res, next) => {
       createdBy: req.user._id,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Dars muvaffaqiyatli yuklandi",
       lesson,
@@ -77,32 +89,46 @@ export const uploadLesson = async (req, res, next) => {
   }
 };
 
-
+// ==================================
+// 2. BARCHA DARSLARNI OLISH
+// ==================================
 
 export const getLessons = async (req, res, next) => {
   try {
     const { course, page = 1, limit = 10 } = req.query;
 
     const pageNumber = Math.max(1, Number(page) || 1);
-    const limitNumber = Math.min(50, Math.max(1, Number(limit) || 10));
+    const limitNumber = Math.min(
+      50,
+      Math.max(1, Number(limit) || 10)
+    );
 
     const filter = {
       isPublished: true,
     };
 
     if (course) {
+      if (!mongoose.isValidObjectId(course)) {
+        return res.status(400).json({
+          success: false,
+          message: "Course ID formati noto'g'ri",
+        });
+      }
+
       filter.course = course;
     }
 
-    const lessons = await Lesson.find(filter)
-      .select("-video.path -video.filename -video.originalName")
-      .sort({ order: 1 })
-      .skip((pageNumber - 1) * limitNumber)
-      .limit(limitNumber);
+    const [lessons, total] = await Promise.all([
+      Lesson.find(filter)
+        .select("-video.path -video.filename -video.originalName")
+        .sort({ order: 1 })
+        .skip((pageNumber - 1) * limitNumber)
+        .limit(limitNumber),
 
-    const total = await Lesson.countDocuments(filter);
+      Lesson.countDocuments(filter),
+    ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       total,
       page: pageNumber,
@@ -114,14 +140,27 @@ export const getLessons = async (req, res, next) => {
   }
 };
 
-
+// ==================================
+// 3. BITTA DARSNI OLISH
+// ==================================
 
 export const getLessonById = async (req, res, next) => {
   try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Dars ID formati noto'g'ri",
+      });
+    }
+
     const lesson = await Lesson.findOne({
-      _id: req.params.id,
+      _id: id,
       isPublished: true,
-    }).select("-video.path -video.filename -video.originalName");
+    }).select(
+      "-video.path -video.filename -video.originalName"
+    );
 
     if (!lesson) {
       return res.status(404).json({
@@ -130,7 +169,7 @@ export const getLessonById = async (req, res, next) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       lesson,
     });
@@ -139,10 +178,22 @@ export const getLessonById = async (req, res, next) => {
   }
 };
 
+// ==================================
+// 4. VIDEO STREAMING
+// ==================================
 
 export const streamLessonVideo = async (req, res, next) => {
   try {
-    const lesson = await Lesson.findById(req.params.id);
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Dars ID formati noto'g'ri",
+      });
+    }
+
+    const lesson = await Lesson.findById(id);
 
     if (!lesson || !lesson.isPublished) {
       return res.status(404).json({
@@ -151,7 +202,7 @@ export const streamLessonVideo = async (req, res, next) => {
       });
     }
 
-    
+    // Bepul dars bo'lmasa, enrollment tekshiriladi
     if (!lesson.isFree) {
       const enrollment = await Enrollment.findOne({
         student: req.user._id,
@@ -170,7 +221,6 @@ export const streamLessonVideo = async (req, res, next) => {
 
     const videoPath = path.resolve(lesson.video.path);
     const stat = await fs.stat(videoPath);
-
     const fileSize = stat.size;
     const range = req.headers.range;
 
@@ -182,8 +232,10 @@ export const streamLessonVideo = async (req, res, next) => {
       res.status(200);
       res.setHeader("Content-Length", fileSize);
 
-      const { createReadStream } = await import("fs");
-      return createReadStream(videoPath).pipe(res);
+      const stream = createReadStream(videoPath);
+
+      stream.on("error", next);
+      return stream.pipe(res);
     }
 
     const parts = range.replace(/bytes=/, "").split("-");
@@ -215,12 +267,13 @@ export const streamLessonVideo = async (req, res, next) => {
     );
     res.setHeader("Content-Length", chunkSize);
 
-    const { createReadStream } = await import("fs");
-
-    createReadStream(videoPath, {
+    const stream = createReadStream(videoPath, {
       start,
       end,
-    }).pipe(res);
+    });
+
+    stream.on("error", next);
+    return stream.pipe(res);
   } catch (error) {
     if (error.code === "ENOENT") {
       return res.status(404).json({

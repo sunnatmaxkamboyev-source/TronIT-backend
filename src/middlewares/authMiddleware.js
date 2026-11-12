@@ -1,11 +1,12 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
+
 export const protect = async (req, res, next) => {
   try {
     let token = req.cookies?.tronit_token;
 
-    
+    // Bearer token fallback
     if (
       !token &&
       req.headers.authorization?.startsWith("Bearer ")
@@ -24,13 +25,11 @@ export const protect = async (req, res, next) => {
       throw new Error("JWT_SECRET sozlanmagan");
     }
 
-    
     const decoded = jwt.verify(
       token,
       process.env.JWT_SECRET
     );
 
-  
     const user = await User.findById(decoded.id);
 
     if (!user || !user.isActive) {
