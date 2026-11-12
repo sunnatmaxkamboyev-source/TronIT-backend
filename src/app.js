@@ -4,6 +4,7 @@ import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
+import authRoutes from "./routes/authRoutes.js";
 
 const app = express();
 
@@ -16,7 +17,7 @@ app.use(
     })
 );
 
-
+app.use("/api/auth", authRoutes);
 app.use(express.json({limit: "10kb"}));
 app.use(express.urlencoded({extended: true, limit: "10kb"}));
 
