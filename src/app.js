@@ -5,7 +5,9 @@ import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 
+
 import authRoutes from "./routes/authRoutes.js";
+import lessonRoutes from "./routes/lessonRoutes.js";
 
 const app = express();
 
@@ -40,7 +42,7 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   message: {
     success: false,
-    message: "Juda ko'p so'rov yuborildi. Keyinroq urinib ko'ring.",
+    message: "Juda ko'p so'rov yuborildi. Keyinroq qayta urinib ko'ring.",
   },
 });
 
@@ -59,6 +61,9 @@ app.get("/", (req, res) => {
 app.use("/api/auth", authRoutes);
 
 
+app.use("/api/lessons", lessonRoutes);
+
+
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -70,9 +75,35 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   console.error("SERVER ERROR:", err);
 
+  if (res.headersSent) {
+    return next(err);
+  }
+
+
+  if (err.name === "MulterError") {
+    return res.status(400).json({
+      success: false,
+      message:
+        err.code === "LIMIT_FILE_SIZE"
+          ? "Video hajmi 500 MB dan oshmasligi kerak"
+          : err.message,
+    });
+  }
+
+  
+  if (err.message === "Faqat MP4 formatidagi videolar qabul qilinadi!") {
+    return res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+
   res.status(err.statusCode || err.status || 500).json({
     success: false,
-    message: err.message || "Serverda ichki xatolik yuz berdi",
+    message:
+      process.env.NODE_ENV === "development"
+        ? err.message
+        : "Serverda ichki xatolik yuz berdi",
   });
 });
 
