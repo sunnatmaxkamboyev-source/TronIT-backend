@@ -5,29 +5,36 @@ import Lesson from "../models/Lesson.js";
 import Enrollment from "../models/Enrollment.js";
 import Progress from "../models/Progress.js";
 
-
+// Barcha foydalanuvchilarni olish
 export const getAllUsers = async (req, res, next) => {
   try {
-    const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10));
-    const search = req.query.search?.trim();
+    const { page, limit, search } = req.validated.query;
 
     const filter = {};
 
     if (search) {
+      // Regex maxsus belgilarini oddiy matn sifatida qabul qilish
+      const escapedSearch = search.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      );
+
       filter.$or = [
-        { firstName: { $regex: search, $options: "i" } },
-        { lastName: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
+        { firstName: { $regex: escapedSearch, $options: "i" } },
+        { lastName: { $regex: escapedSearch, $options: "i" } },
+        { email: { $regex: escapedSearch, $options: "i" } },
       ];
     }
+
+    const skip = (page - 1) * limit;
 
     const [users, total] = await Promise.all([
       User.find(filter)
         .select("-password")
         .sort({ createdAt: -1 })
-        .skip((page - 1) * limit)
+        .skip(skip)
         .limit(limit),
+
       User.countDocuments(filter),
     ]);
 
@@ -35,6 +42,7 @@ export const getAllUsers = async (req, res, next) => {
       success: true,
       total,
       page,
+      limit,
       pages: Math.ceil(total / limit),
       users,
     });
@@ -43,9 +51,12 @@ export const getAllUsers = async (req, res, next) => {
   }
 };
 
+// Bitta foydalanuvchini ID orqali olish
 export const getUserById = async (req, res, next) => {
   try {
-    const user = await User.findById(req.params.id).select("-password");
+    const { id } = req.validated.params;
+
+    const user = await User.findById(id).select("-password");
 
     if (!user) {
       return res.status(404).json({
@@ -63,19 +74,14 @@ export const getUserById = async (req, res, next) => {
   }
 };
 
-
+// Foydalanuvchini bloklash yoki faollashtirish
 export const toggleUserStatus = async (req, res, next) => {
   try {
-    const { isActive } = req.body;
+    const { id } = req.validated.params;
+    const { isActive } = req.validated.body;
 
-    if (typeof isActive !== "boolean") {
-      return res.status(400).json({
-        success: false,
-        message: "isActive true yoki false bo'lishi kerak",
-      });
-    }
-
-    if (req.params.id === req.user._id.toString()) {
+    // Admin o'z hisobini bloklay olmaydi
+    if (id === req.user._id.toString()) {
       return res.status(400).json({
         success: false,
         message: "O'zingizning akkauntingizni bloklay olmaysiz",
@@ -83,9 +89,12 @@ export const toggleUserStatus = async (req, res, next) => {
     }
 
     const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { isActive },
-      { new: true, runValidators: true }
+      id,
+      { $set: { isActive } },
+      {
+        new: true,
+        runValidators: true,
+      }
     ).select("-password");
 
     if (!user) {
@@ -107,7 +116,7 @@ export const toggleUserStatus = async (req, res, next) => {
   }
 };
 
-
+// Admin dashboard statistikasi
 export const getDashboardStats = async (req, res, next) => {
   try {
     const [
@@ -121,13 +130,26 @@ export const getDashboardStats = async (req, res, next) => {
       completedLessons,
     ] = await Promise.all([
       User.countDocuments(),
-      User.countDocuments({ isActive: true }),
+
+      User.countDocuments({
+        isActive: true,
+      }),
+
       Course.countDocuments(),
-      Course.countDocuments({ status: "published" }),
+
+      Course.countDocuments({
+        status: "published",
+      }),
+
       Category.countDocuments(),
+
       Lesson.countDocuments(),
+
       Enrollment.countDocuments(),
-      Progress.countDocuments({ isCompleted: true }),
+
+      Progress.countDocuments({
+        isCompleted: true,
+      }),
     ]);
 
     res.status(200).json({

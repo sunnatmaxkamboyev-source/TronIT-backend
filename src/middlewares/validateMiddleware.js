@@ -1,12 +1,19 @@
+
+import fs from "fs/promises";
+
 const validate = (schema) => {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     const result = schema.safeParse({
-      body: req.body,
-      params: req.params,
-      query: req.query,
+      body: req.body ?? {},
+      params: req.params ?? {},
+      query: req.query ?? {},
     });
 
     if (!result.success) {
+      if (req.file?.path) {
+        await fs.unlink(req.file.path).catch(() => {});
+      }
+
       const errors = result.error.issues.map((issue) => ({
         field: issue.path.join("."),
         message: issue.message,
@@ -20,6 +27,9 @@ const validate = (schema) => {
     }
 
     req.validated = result.data;
+    req.body = result.data.body;
+    req.params = result.data.params;
+
     next();
   };
 };

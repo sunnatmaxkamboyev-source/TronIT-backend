@@ -3,12 +3,56 @@ import fs from "fs/promises";
 import path from "path";
 import { createReadStream } from "fs";
 import mongoose from "mongoose";
+import { fileTypeFromFile } from "file-type";
 
 import Lesson from "../models/Lesson.js";
 import Course from "../models/Course.js";
 import Enrollment from "../models/Enrollment.js";
 
+const VIDEO_DIR = path.resolve(process.cwd(), "uploads/videos");
+const MAX_VIDEO_SIZE = 500 * 1024 * 1024;
+const MAX_DURATION = 86400;
 
+// Upload qilingan faylni o'chirish
+const removeUploadedFile = async (file) => {
+  if (!file?.path) return;
+  await fs.unlink(file.path).catch(() => {});
+};
+
+// Faqat xavfsiz video fayl nomiga ruxsat
+const getSafeVideoPath = (filename) => {
+  if (
+    typeof filename !== "string" ||
+    path.basename(filename) !== filename ||
+    !/^[a-f0-9-]+\.mp4$/i.test(filename)
+  ) {
+    throw new Error("Video fayl nomi noto'g'ri");
+  }
+
+  return path.join(VIDEO_DIR, filename);
+};
+
+// Haqiqiy MP4 formatini tekshirish
+const verifyMp4 = async (file) => {
+  if (!file || !file.size || file.size <= 0) {
+    return false;
+  }
+
+  if (file.size > MAX_VIDEO_SIZE) {
+    return false;
+  }
+
+  const fileType = await fileTypeFromFile(file.path);
+
+  return (
+    fileType?.ext === "mp4" &&
+    fileType?.mime === "video/mp4"
+  );
+};
+
+// ==================================
+// 1. DARS YUKLASH
+// ==================================
 
 export const uploadLesson = async (req, res, next) => {
   try {
@@ -28,8 +72,25 @@ export const uploadLesson = async (req, res, next) => {
       });
     }
 
-    if (!title || !course || !order) {
-      await fs.unlink(req.file.path);
+    // Faylning haqiqiy formatini tekshirish
+    const isValidVideo = await verifyMp4(req.file);
+
+    if (!isValidVideo) {
+      await removeUploadedFile(req.file);
+
+      return res.status(400).json({
+        success: false,
+        message: "Haqiqiy MP4 video fayl yuklang",
+      });
+    }
+
+    if (
+      typeof title !== "string" ||
+      !title.trim() ||
+      typeof course !== "string" ||
+      !order
+    ) {
+      await removeUploadedFile(req.file);
 
       return res.status(400).json({
         success: false,
@@ -38,18 +99,36 @@ export const uploadLesson = async (req, res, next) => {
     }
 
     if (!mongoose.isValidObjectId(course)) {
-      await fs.unlink(req.file.path);
+      await removeUploadedFile(req.file);
 
       return res.status(400).json({
         success: false,
-        message: "Course ID formati noto'g'ri",
+        message: "Course ID noto'g'ri",
+      });
+    }
+
+    const orderNumber = Number(order);
+    const durationNumber = Number(duration ?? 0);
+
+    if (
+      !Number.isInteger(orderNumber) ||
+      orderNumber < 1 ||
+      !Number.isFinite(durationNumber) ||
+      durationNumber < 0 ||
+      durationNumber > MAX_DURATION
+    ) {
+      await removeUploadedFile(req.file);
+
+      return res.status(400).json({
+        success: false,
+        message: "Order yoki duration qiymati noto'g'ri",
       });
     }
 
     const existingCourse = await Course.findById(course);
 
     if (!existingCourse) {
-      await fs.unlink(req.file.path);
+      await removeUploadedFile(req.file);
 
       return res.status(404).json({
         success: false,
@@ -57,8 +136,20 @@ export const uploadLesson = async (req, res, next) => {
       });
     }
 
+    if (existingCourse.status === "archived") {
+      await removeUploadedFile(req.file);
+
+      return res.status(400).json({
+        success: false,
+        message: "Arxivlangan kursga dars qo'shib bo'lmaydi",
+      });
+    }
+
+    const isFreeValue =
+      isFree === true || isFree === "true";
+
     const lesson = await Lesson.create({
-      title,
+      title: title.trim(),
       description,
       course,
       video: {
@@ -67,11 +158,11 @@ export const uploadLesson = async (req, res, next) => {
         path: path.relative(process.cwd(), req.file.path)
           .replace(/\\/g, "/"),
         size: req.file.size,
-        mimetype: req.file.mimetype,
+        mimetype: "video/mp4",
       },
-      duration: Number(duration) || 0,
-      order: Number(order),
-      isFree: isFree === "true",
+      duration: durationNumber,
+      order: orderNumber,
+      isFree: isFreeValue,
       createdBy: req.user._id,
     });
 
@@ -81,10 +172,7 @@ export const uploadLesson = async (req, res, next) => {
       lesson,
     });
   } catch (error) {
-    if (req.file) {
-      await fs.unlink(req.file.path).catch(() => {});
-    }
-
+    await removeUploadedFile(req.file);
     next(error);
   }
 };
@@ -95,12 +183,16 @@ export const uploadLesson = async (req, res, next) => {
 
 export const getLessons = async (req, res, next) => {
   try {
-    const { course, page = 1, limit = 10 } = req.query;
+    const { course } = req.query;
 
-    const pageNumber = Math.max(1, Number(page) || 1);
-    const limitNumber = Math.min(
-      50,
-      Math.max(1, Number(limit) || 10)
+    const pageNumber = Math.max(
+      1,
+      Math.min(100000, Number(req.query.page) || 1)
+    );
+
+    const limitNumber = Math.max(
+      1,
+      Math.min(50, Number(req.query.limit) || 10)
     );
 
     const filter = {
@@ -111,11 +203,27 @@ export const getLessons = async (req, res, next) => {
       if (!mongoose.isValidObjectId(course)) {
         return res.status(400).json({
           success: false,
-          message: "Course ID formati noto'g'ri",
+          message: "Course ID noto'g'ri",
+        });
+      }
+
+      const selectedCourse = await Course.findById(course)
+        .select("status");
+
+      if (!selectedCourse || selectedCourse.status !== "published") {
+        return res.status(404).json({
+          success: false,
+          message: "Published kurs topilmadi",
         });
       }
 
       filter.course = course;
+    } else {
+      const publishedCourseIds = await Course.distinct("_id", {
+        status: "published",
+      });
+
+      filter.course = { $in: publishedCourseIds };
     }
 
     const [lessons, total] = await Promise.all([
@@ -123,7 +231,8 @@ export const getLessons = async (req, res, next) => {
         .select("-video.path -video.filename -video.originalName")
         .sort({ order: 1 })
         .skip((pageNumber - 1) * limitNumber)
-        .limit(limitNumber),
+        .limit(limitNumber)
+        .lean(),
 
       Lesson.countDocuments(filter),
     ]);
@@ -151,21 +260,31 @@ export const getLessonById = async (req, res, next) => {
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({
         success: false,
-        message: "Dars ID formati noto'g'ri",
+        message: "Dars ID noto'g'ri",
       });
     }
 
     const lesson = await Lesson.findOne({
       _id: id,
       isPublished: true,
-    }).select(
-      "-video.path -video.filename -video.originalName"
-    );
+    }).select("-video.path -video.filename -video.originalName");
 
     if (!lesson) {
       return res.status(404).json({
         success: false,
         message: "Dars topilmadi",
+      });
+    }
+
+    const course = await Course.findOne({
+      _id: lesson.course,
+      status: "published",
+    }).select("_id");
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        message: "Kurs topilmadi",
       });
     }
 
@@ -189,7 +308,7 @@ export const streamLessonVideo = async (req, res, next) => {
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({
         success: false,
-        message: "Dars ID formati noto'g'ri",
+        message: "Dars ID noto'g'ri",
       });
     }
 
@@ -202,7 +321,20 @@ export const streamLessonVideo = async (req, res, next) => {
       });
     }
 
-    // Bepul dars bo'lmasa, enrollment tekshiriladi
+    // Kurs published bo'lishi shart
+    const course = await Course.findOne({
+      _id: lesson.course,
+      status: "published",
+    }).select("_id");
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        message: "Kurs mavjud emas yoki nashr qilinmagan",
+      });
+    }
+
+    // Pullik dars uchun enrollment tekshiruvi
     if (!lesson.isFree) {
       const enrollment = await Enrollment.findOne({
         student: req.user._id,
@@ -214,57 +346,82 @@ export const streamLessonVideo = async (req, res, next) => {
       if (!enrollment) {
         return res.status(403).json({
           success: false,
-          message: "Bu kurs videosini ko'rish uchun kursga yozilishingiz kerak",
+          message: "Bu videoni ko'rish uchun kursga yozilishingiz kerak",
         });
       }
     }
 
-    const videoPath = path.resolve(lesson.video.path);
+    const videoPath = getSafeVideoPath(lesson.video?.filename);
     const stat = await fs.stat(videoPath);
+
+    if (!stat.isFile() || stat.size <= 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Video fayl topilmadi",
+      });
+    }
+
     const fileSize = stat.size;
     const range = req.headers.range;
+
+    let start = 0;
+    let end = fileSize - 1;
 
     res.setHeader("Content-Type", "video/mp4");
     res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
 
-    if (!range) {
-      res.status(200);
-      res.setHeader("Content-Length", fileSize);
+    if (range) {
+      const match = /^bytes=(\d*)-(\d*)$/.exec(range);
 
-      const stream = createReadStream(videoPath);
+      if (!match || (!match[1] && !match[2])) {
+        res.setHeader("Content-Range", `bytes */${fileSize}`);
+        return res.status(416).end();
+      }
 
-      stream.on("error", next);
-      return stream.pipe(res);
-    }
+      if (!match[1]) {
+        const suffixLength = Number(match[2]);
 
-    const parts = range.replace(/bytes=/, "").split("-");
+        if (
+          !Number.isSafeInteger(suffixLength) ||
+          suffixLength <= 0
+        ) {
+          res.setHeader("Content-Range", `bytes */${fileSize}`);
+          return res.status(416).end();
+        }
 
-    const start = Number(parts[0]);
-    const end = parts[1]
-      ? Number(parts[1])
-      : fileSize - 1;
+        start = Math.max(0, fileSize - suffixLength);
+      } else {
+        start = Number(match[1]);
+        end = match[2] ? Number(match[2]) : fileSize - 1;
+        end = Math.min(end, fileSize - 1);
+      }
 
-    if (
-      !Number.isSafeInteger(start) ||
-      !Number.isSafeInteger(end) ||
-      start < 0 ||
-      end < start ||
-      end >= fileSize
-    ) {
-      return res.status(416).json({
-        success: false,
-        message: "Video range noto'g'ri",
-      });
+      if (
+        !Number.isSafeInteger(start) ||
+        !Number.isSafeInteger(end) ||
+        start < 0 ||
+        end < start ||
+        start >= fileSize
+      ) {
+        res.setHeader("Content-Range", `bytes */${fileSize}`);
+        return res.status(416).end();
+      }
     }
 
     const chunkSize = end - start + 1;
 
-    res.status(206);
-    res.setHeader(
-      "Content-Range",
-      `bytes ${start}-${end}/${fileSize}`
-    );
+    if (range) {
+      res.status(206);
+      res.setHeader(
+        "Content-Range",
+        `bytes ${start}-${end}/${fileSize}`
+      );
+    } else {
+      res.status(200);
+    }
+
     res.setHeader("Content-Length", chunkSize);
 
     const stream = createReadStream(videoPath, {
@@ -272,7 +429,14 @@ export const streamLessonVideo = async (req, res, next) => {
       end,
     });
 
-    stream.on("error", next);
+    stream.on("error", (error) => {
+      if (res.headersSent) {
+        res.destroy(error);
+      } else {
+        next(error);
+      }
+    });
+
     return stream.pipe(res);
   } catch (error) {
     if (error.code === "ENOENT") {

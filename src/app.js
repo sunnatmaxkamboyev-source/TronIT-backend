@@ -17,26 +17,52 @@ import adminRoutes from "./routes/adminRoutes.js";
 const app = express();
 
 
+
+app.disable("x-powered-by");
 app.use(helmet());
+
+
+
+const allowedOrigins = [
+  process.env.FRONTEND_URL || "http://localhost:5173",
+];
 
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("CORS: Origin ruxsat etilmagan"));
+    },
     credentials: true,
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
 
+
 app.use(express.json({ limit: "10kb" }));
-app.use(express.urlencoded({ extended: true }));
+
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "10kb",
+    parameterLimit: 100,
+  })
+);
 
 
 app.use(cookieParser());
 
 
+
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 }
+
 
 
 const apiLimiter = rateLimit({
@@ -48,30 +74,26 @@ const apiLimiter = rateLimit({
     success: false,
     message: "Juda ko'p so'rov yuborildi. Keyinroq urinib ko'ring.",
   },
+  handler: (req, res) => {
+    return res.status(429).json({
+      success: false,
+      message: "Juda ko'p so'rov yuborildi. Keyinroq urinib ko'ring.",
+    });
+  },
 });
 
 app.use("/api", apiLimiter);
 
 
+
 app.get("/", (req, res) => {
   res.status(200).json({
     success: true,
-    message: "TronIT API ishlayapti 🚀",
-    environment: process.env.NODE_ENV,
+    message: "TronIT API ishlayapti",
+    environment: process.env.NODE_ENV || "development",
   });
 });
 
-
-if (process.env.NODE_ENV === "development") {
-  app.post("/api/debug/body", (req, res) => {
-    res.status(200).json({
-      success: true,
-      bodyReceived: req.body !== undefined,
-      contentType: req.headers["content-type"],
-      body: req.body,
-    });
-  });
-}
 
 
 app.use("/api/auth", authRoutes);
@@ -84,16 +106,22 @@ app.use("/api/student", studentRoutes);
 app.use("/api/admin", adminRoutes);
 
 
+
 app.use((req, res) => {
-  res.status(404).json({
+  return res.status(404).json({
     success: false,
     message: `${req.method} ${req.originalUrl} topilmadi`,
   });
 });
 
 
+
 app.use((err, req, res, next) => {
   console.error("ERROR:", err);
+
+  if (res.headersSent) {
+    return next(err);
+  }
 
   if (err.type === "entity.parse.failed") {
     return res.status(400).json({
@@ -102,26 +130,63 @@ app.use((err, req, res, next) => {
     });
   }
 
+  if (err.type === "entity.too.large") {
+    return res.status(413).json({
+      success: false,
+      message: "Yuborilgan ma'lumot hajmi juda katta",
+    });
+  }
+
   if (err.name === "MulterError") {
+    const statusCode =
+      err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+
+    return res.status(statusCode).json({
+      success: false,
+      message:
+        err.code === "LIMIT_FILE_SIZE"
+          ? "Video hajmi 500 MB dan oshmasligi kerak"
+          : err.message,
+    });
+  }
+
+  if (
+    err.message?.includes("Faqat MP4") ||
+    err.message?.includes("ruxsat etilmagan")
+  ) {
     return res.status(400).json({
       success: false,
       message: err.message,
     });
   }
 
-  if (err.message?.includes("Faqat MP4")) {
+  if (err.name === "ValidationError") {
     return res.status(400).json({
       success: false,
-      message: err.message,
+      message: "Ma'lumotlar validatsiyadan o'tmadi",
+    });
+  }
+
+  if (err.name === "CastError") {
+    return res.status(400).json({
+      success: false,
+      message: "Yuborilgan ID yoki qiymat noto'g'ri",
+    });
+  }
+
+  if (err.code === 11000) {
+    return res.status(409).json({
+      success: false,
+      message: "Bu ma'lumot bazada allaqachon mavjud",
     });
   }
 
   const statusCode = err.statusCode || err.status || 500;
 
-  return res.status(statusCode).json({
+  return res.status(statusCode >= 500 ? 500 : statusCode).json({
     success: false,
     message:
-      statusCode === 500
+      statusCode >= 500
         ? "Serverda ichki xatolik yuz berdi"
         : err.message,
   });

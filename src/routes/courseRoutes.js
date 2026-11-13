@@ -15,6 +15,7 @@ import validate from "../middlewares/validateMiddleware.js";
 import {
   createCourseSchema,
   updateCourseSchema,
+  deleteCourseSchema,
 } from "../validators/courseValidator.js";
 
 const router = express.Router();
@@ -40,6 +41,12 @@ router.patch(
   updateCourse
 );
 
-router.delete("/:id", protect, adminOnly, deleteCourse);
+router.delete(
+  "/:id",
+  protect,
+  adminOnly,
+  validate(deleteCourseSchema),
+  deleteCourse
+);
 
 export default router;

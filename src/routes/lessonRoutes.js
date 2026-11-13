@@ -1,3 +1,4 @@
+
 import express from "express";
 
 import {
@@ -7,7 +8,11 @@ import {
   streamLessonVideo,
 } from "../controllers/lessonController.js";
 
-import { protect, adminOnly } from "../middlewares/authMiddleware.js";
+import {
+  protect,
+  adminOnly,
+} from "../middlewares/authMiddleware.js";
+
 import upload from "../middlewares/uploadMiddleware.js";
 import validate from "../middlewares/validateMiddleware.js";
 

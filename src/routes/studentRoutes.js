@@ -1,4 +1,3 @@
-
 import { Router } from "express";
 
 import {
@@ -10,24 +9,53 @@ import {
 } from "../controllers/studentController.js";
 
 import { protect } from "../middlewares/authMiddleware.js";
+import validate from "../middlewares/validateMiddleware.js";
+
+import {
+  getStudentProfileSchema,
+  updateStudentProfileSchema,
+  getStudentCoursesSchema,
+  getStudentStatsSchema,
+  deleteStudentAccountSchema,
+} from "../validators/studentValidator.js";
 
 const router = Router();
 
-
+// Barcha endpointlar autentifikatsiyadan o'tadi
 router.use(protect);
 
+// Profil
+router.get(
+  "/profile",
+  validate(getStudentProfileSchema),
+  getStudentProfile
+);
 
-router.get("/profile", getStudentProfile);
+router.patch(
+  "/profile",
+  validate(updateStudentProfileSchema),
+  updateStudentProfile
+);
 
-router.patch("/profile", updateStudentProfile);
+// Kurslar
+router.get(
+  "/courses",
+  validate(getStudentCoursesSchema),
+  getStudentCourses
+);
 
+// Statistika
+router.get(
+  "/stats",
+  validate(getStudentStatsSchema),
+  getStudentStats
+);
 
-router.get("/courses", getStudentCourses);
-
-
-router.get("/stats", getStudentStats);
-
-
-router.delete("/account", deleteStudentAccount);
+// Hisobni o'chirish
+router.delete(
+  "/account",
+  validate(deleteStudentAccountSchema),
+  deleteStudentAccount
+);
 
 export default router;

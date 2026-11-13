@@ -1,5 +1,5 @@
-
 import express from "express";
+import rateLimit from "express-rate-limit";
 
 import {
   register,
@@ -19,15 +19,46 @@ import {
 const router = express.Router();
 
 
-router.post("/register", validate(registerSchema), register);
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Juda ko'p urinish. 15 daqiqadan keyin qayta urinib ko'ring.",
+  },
+});
 
 
-router.post("/login", validate(loginSchema), login);
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Ro'yxatdan o'tish urinishlari limiti tugadi. Keyinroq urinib ko'ring.",
+  },
+});
+
+
+router.post(
+  "/register",
+  registerLimiter,
+  validate(registerSchema),
+  register
+);
+
+router.post(
+  "/login",
+  loginLimiter,
+  validate(loginSchema),
+  login
+);
 
 
 router.post("/logout", protect, logout);
-
-
 router.get("/me", protect, getMe);
 
 export default router;

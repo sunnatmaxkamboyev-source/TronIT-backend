@@ -1,35 +1,43 @@
 import User from "../models/User.js";
 import jwt from "jsonwebtoken";
 
-// JWT token yaratish
+
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
+
+
+const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+
+
 const generateToken = (userId) => {
   if (!process.env.JWT_SECRET) {
     throw new Error("JWT_SECRET .env faylida mavjud emas");
   }
 
   return jwt.sign(
-    { id: userId },
+    { id: userId.toString() },
     process.env.JWT_SECRET,
     {
-      expiresIn: process.env.JWT_EXPIRES_IN || "7d",
+      expiresIn: JWT_EXPIRES_IN,
+      algorithm: "HS256",
     }
   );
 };
 
-// Cookie sozlamalari
 const cookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
   sameSite: "lax",
-  maxAge: 7 * 24 * 60 * 60 * 1000,
   path: "/",
 };
 
-// Token va user yuborish
+
 const sendToken = (user, statusCode, res) => {
   const token = generateToken(user._id);
 
-  res.cookie("tronit_token", token, cookieOptions);
+  res.cookie("tronit_token", token, {
+    ...cookieOptions,
+    maxAge: COOKIE_MAX_AGE,
+  });
 
   const safeUser = user.toObject();
   delete safeUser.password;
@@ -40,7 +48,7 @@ const sendToken = (user, statusCode, res) => {
   });
 };
 
-// REGISTER
+
 export const register = async (req, res, next) => {
   try {
     const { firstName, lastName, email, password } = req.body || {};
@@ -53,22 +61,6 @@ export const register = async (req, res, next) => {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (!emailRegex.test(normalizedEmail)) {
-      return res.status(400).json({
-        success: false,
-        message: "Email formati noto'g'ri",
-      });
-    }
-
-    if (password.length < 8) {
-      return res.status(400).json({
-        success: false,
-        message: "Parol kamida 8 ta belgidan iborat bo'lishi kerak",
-      });
-    }
 
     const existingUser = await User.findOne({
       email: normalizedEmail,
@@ -101,25 +93,20 @@ export const register = async (req, res, next) => {
   }
 };
 
-// LOGIN
+
 export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body || {};
 
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email va parolni kiriting",
-      });
-    }
-
     if (
       typeof email !== "string" ||
-      typeof password !== "string"
+      typeof password !== "string" ||
+      !email.trim() ||
+      !password
     ) {
       return res.status(400).json({
         success: false,
-        message: "Email va parol formati noto'g'ri",
+        message: "Email va parolni to'g'ri kiriting",
       });
     }
 
@@ -136,7 +123,8 @@ export const login = async (req, res, next) => {
       });
     }
 
-    const isPasswordCorrect = await user.comparePassword(password);
+    const isPasswordCorrect =
+      await user.comparePassword(password);
 
     if (!isPasswordCorrect) {
       return res.status(401).json({
@@ -161,7 +149,7 @@ export const login = async (req, res, next) => {
   }
 };
 
-// LOGOUT
+
 export const logout = (req, res) => {
   res.clearCookie("tronit_token", cookieOptions);
 
@@ -171,10 +159,11 @@ export const logout = (req, res) => {
   });
 };
 
-// GET CURRENT USER
+
 export const getMe = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id)
+      .select("-password");
 
     if (!user) {
       return res.status(404).json({

@@ -26,12 +26,14 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       maxlength: 100,
+      match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Email formati noto'g'ri"],
     },
 
     password: {
       type: String,
       required: [true, "Parol kiritilishi shart"],
       minlength: 8,
+      maxlength: 128,
       select: false,
     },
 
@@ -44,17 +46,21 @@ const userSchema = new mongoose.Schema(
     avatar: {
       type: String,
       default: "",
+      maxlength: 500,
     },
 
     bio: {
       type: String,
       maxlength: 500,
       default: "",
+      trim: true,
     },
 
     phone: {
       type: String,
       default: "",
+      maxlength: 20,
+      trim: true,
     },
 
     isActive: {

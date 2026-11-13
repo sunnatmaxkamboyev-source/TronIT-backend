@@ -1,8 +1,17 @@
 import mongoose from "mongoose";
 
+const createSlug = (value) => {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/o['ʻ’`]/g, "o")
+    .replace(/g['ʻ’`]/g, "g")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+};
+
 const courseSchema = new mongoose.Schema(
   {
-   
     title: {
       type: String,
       required: [true, "Kurs nomi kiritilishi shart"],
@@ -11,7 +20,6 @@ const courseSchema = new mongoose.Schema(
       maxlength: 120,
     },
 
- 
     slug: {
       type: String,
       unique: true,
@@ -20,31 +28,32 @@ const courseSchema = new mongoose.Schema(
       index: true,
     },
 
-    
     shortDescription: {
       type: String,
       required: [true, "Qisqa tavsif kiritilishi shart"],
+      trim: true,
       maxlength: 250,
     },
 
     description: {
       type: String,
       required: [true, "Kurs tavsifi kiritilishi shart"],
+      trim: true,
       maxlength: 5000,
     },
 
-   
     thumbnail: {
       type: String,
       default: "",
+      maxlength: 1000,
     },
 
     previewVideo: {
       type: String,
       default: "",
+      maxlength: 1000,
     },
 
-    
     instructorName: {
       type: String,
       required: [true, "O'qituvchi ismi kiritilishi shart"],
@@ -55,30 +64,27 @@ const courseSchema = new mongoose.Schema(
     instructorAvatar: {
       type: String,
       default: "",
+      maxlength: 1000,
     },
 
-    
     category: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
       required: [true, "Kategoriya tanlanishi shart"],
     },
 
-    
     level: {
       type: String,
       enum: ["beginner", "intermediate", "advanced"],
       default: "beginner",
     },
 
-    
     language: {
       type: String,
-      default: "uz",
       enum: ["uz", "ru", "en"],
+      default: "uz",
     },
 
-    
     price: {
       type: Number,
       required: true,
@@ -98,25 +104,21 @@ const courseSchema = new mongoose.Schema(
       },
     },
 
-  
     tags: {
       type: [String],
       default: [],
     },
-
 
     requirements: {
       type: [String],
       default: [],
     },
 
-    
     learningOutcomes: {
       type: [String],
       default: [],
     },
 
-   
     totalLessons: {
       type: Number,
       default: 0,
@@ -148,7 +150,6 @@ const courseSchema = new mongoose.Schema(
       min: 0,
     },
 
-   
     status: {
       type: String,
       enum: ["draft", "published", "archived"],
@@ -160,7 +161,6 @@ const courseSchema = new mongoose.Schema(
       default: false,
     },
 
-  
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -173,18 +173,14 @@ const courseSchema = new mongoose.Schema(
   }
 );
 
-
+// Slug yaratish
 courseSchema.pre("validate", function () {
   if (this.isModified("title") && this.title) {
-    this.slug = this.title
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "");
+    this.slug = createSlug(this.title);
   }
 });
 
-
+// Indexes
 courseSchema.index({ status: 1, createdAt: -1 });
 courseSchema.index({ category: 1, status: 1 });
 courseSchema.index({ isFeatured: 1, status: 1 });

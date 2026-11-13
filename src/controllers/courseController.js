@@ -1,10 +1,37 @@
+
 import mongoose from "mongoose";
 
 import Course from "../models/Course.js";
 import Lesson from "../models/Lesson.js";
-import Enrollment from "../models/Enrollment.js";
+import Category from "../models/Category.js";
 
+// Ruxsat berilgan maydonlar
+const allowedFields = [
+  "title",
+  "shortDescription",
+  "description",
+  "thumbnail",
+  "previewVideo",
+  "instructorName",
+  "instructorAvatar",
+  "category",
+  "level",
+  "language",
+  "price",
+  "discountPrice",
+  "tags",
+  "requirements",
+  "learningOutcomes",
+  "isFeatured",
+  "status",
+];
 
+// MongoDB duplicate key xatosini aniqlash
+const isDuplicateError = (error) => error.code === 11000;
+
+// ==================================
+// 1. KURS YARATISH
+// ==================================
 
 export const createCourse = async (req, res, next) => {
   try {
@@ -27,17 +54,54 @@ export const createCourse = async (req, res, next) => {
       isFeatured,
     } = req.body;
 
-    if (!title || !shortDescription || !description) {
+    if (!title || !shortDescription || !description || !category || !instructorName) {
       return res.status(400).json({
         success: false,
-        message: "Title, shortDescription va description kiritilishi shart",
+        message: "Title, tavsif, kategoriya va o'qituvchi ma'lumotlari kiritilishi shart",
       });
     }
 
-    if (category && !mongoose.isValidObjectId(category)) {
+    if (!mongoose.isValidObjectId(category)) {
       return res.status(400).json({
         success: false,
         message: "Category ID noto'g'ri",
+      });
+    }
+
+    const existingCategory = await Category.findById(category);
+
+    if (!existingCategory) {
+      return res.status(404).json({
+        success: false,
+        message: "Kategoriya topilmadi",
+      });
+    }
+
+    const coursePrice = price === undefined || price === ""
+      ? 0
+      : Number(price);
+
+    const courseDiscount =
+      discountPrice === undefined || discountPrice === ""
+        ? null
+        : Number(discountPrice);
+
+    if (!Number.isFinite(coursePrice) || coursePrice < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Kurs narxi noto'g'ri",
+      });
+    }
+
+    if (
+      courseDiscount !== null &&
+      (!Number.isFinite(courseDiscount) ||
+        courseDiscount < 0 ||
+        courseDiscount > coursePrice)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Chegirma narxi noto'g'ri",
       });
     }
 
@@ -52,11 +116,8 @@ export const createCourse = async (req, res, next) => {
       category,
       level,
       language,
-      price: Number(price) || 0,
-      discountPrice:
-        discountPrice !== undefined && discountPrice !== ""
-          ? Number(discountPrice)
-          : undefined,
+      price: coursePrice,
+      discountPrice: courseDiscount,
       tags,
       requirements,
       learningOutcomes,
@@ -71,27 +132,38 @@ export const createCourse = async (req, res, next) => {
       course,
     });
   } catch (error) {
+    if (isDuplicateError(error)) {
+      return res.status(409).json({
+        success: false,
+        message: "Bunday slug bilan kurs mavjud",
+      });
+    }
+
     next(error);
   }
 };
 
-
+// ==================================
+// 2. BARCHA OCHIQ KURSLARNI OLISH
+// ==================================
 
 export const getCourses = async (req, res, next) => {
   try {
     const {
-      page = 1,
-      limit = 10,
       category,
       level,
       language,
       search,
     } = req.query;
 
-    const pageNumber = Math.max(1, Number(page) || 1);
+    const pageNumber = Math.min(
+      100000,
+      Math.max(1, Number(req.query.page) || 1)
+    );
+
     const limitNumber = Math.min(
       50,
-      Math.max(1, Number(limit) || 10)
+      Math.max(1, Number(req.query.limit) || 10)
     );
 
     const filter = {
@@ -109,11 +181,39 @@ export const getCourses = async (req, res, next) => {
       filter.category = category;
     }
 
-    if (level) filter.level = level;
-    if (language) filter.language = language;
+    if (level) {
+      if (!["beginner", "intermediate", "advanced"].includes(level)) {
+        return res.status(400).json({
+          success: false,
+          message: "Kurs darajasi noto'g'ri",
+        });
+      }
+
+      filter.level = level;
+    }
+
+    if (language) {
+      if (!["uz", "ru", "en"].includes(language)) {
+        return res.status(400).json({
+          success: false,
+          message: "Kurs tili noto'g'ri",
+        });
+      }
+
+      filter.language = language;
+    }
 
     if (search) {
-      filter.$text = { $search: search };
+      if (typeof search !== "string" || search.trim().length > 100) {
+        return res.status(400).json({
+          success: false,
+          message: "Qidiruv so'rovi noto'g'ri",
+        });
+      }
+
+      filter.$text = {
+        $search: search.trim(),
+      };
     }
 
     const [courses, total] = await Promise.all([
@@ -122,7 +222,8 @@ export const getCourses = async (req, res, next) => {
         .populate("createdBy", "firstName lastName")
         .sort({ createdAt: -1 })
         .skip((pageNumber - 1) * limitNumber)
-        .limit(limitNumber),
+        .limit(limitNumber)
+        .lean(),
 
       Course.countDocuments(filter),
     ]);
@@ -139,7 +240,9 @@ export const getCourses = async (req, res, next) => {
   }
 };
 
-
+// ==================================
+// 3. BITTA KURSNI OLISH
+// ==================================
 
 export const getCourseById = async (req, res, next) => {
   try {
@@ -175,7 +278,9 @@ export const getCourseById = async (req, res, next) => {
   }
 };
 
-
+// ==================================
+// 4. KURSNI YANGILASH
+// ==================================
 
 export const updateCourse = async (req, res, next) => {
   try {
@@ -188,26 +293,6 @@ export const updateCourse = async (req, res, next) => {
       });
     }
 
-    const allowedFields = [
-      "title",
-      "shortDescription",
-      "description",
-      "thumbnail",
-      "previewVideo",
-      "instructorName",
-      "instructorAvatar",
-      "category",
-      "level",
-      "language",
-      "price",
-      "discountPrice",
-      "tags",
-      "requirements",
-      "learningOutcomes",
-      "isFeatured",
-      "status",
-    ];
-
     const updates = {};
 
     for (const field of allowedFields) {
@@ -216,46 +301,14 @@ export const updateCourse = async (req, res, next) => {
       }
     }
 
-    if (updates.category && !mongoose.isValidObjectId(updates.category)) {
+    if (Object.keys(updates).length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Category ID noto'g'ri",
+        message: "Yangilash uchun ma'lumot yuborilmadi",
       });
     }
 
-    if (updates.price !== undefined) {
-      updates.price = Number(updates.price);
-
-      if (!Number.isFinite(updates.price) || updates.price < 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Kurs narxi noto'g'ri",
-        });
-      }
-    }
-
-    if (updates.discountPrice !== undefined) {
-      updates.discountPrice = Number(updates.discountPrice);
-
-      if (
-        !Number.isFinite(updates.discountPrice) ||
-        updates.discountPrice < 0
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Chegirma narxi noto'g'ri",
-        });
-      }
-    }
-
-    const course = await Course.findByIdAndUpdate(
-      id,
-      updates,
-      {
-        new: true,
-        runValidators: true,
-      }
-    );
+    const course = await Course.findById(id);
 
     if (!course) {
       return res.status(404).json({
@@ -264,17 +317,126 @@ export const updateCourse = async (req, res, next) => {
       });
     }
 
+    // Kategoriya mavjudligini tekshirish
+    if (updates.category !== undefined) {
+      if (!mongoose.isValidObjectId(updates.category)) {
+        return res.status(400).json({
+          success: false,
+          message: "Category ID noto'g'ri",
+        });
+      }
+
+      const categoryExists = await Category.exists({
+        _id: updates.category,
+      });
+
+      if (!categoryExists) {
+        return res.status(404).json({
+          success: false,
+          message: "Kategoriya topilmadi",
+        });
+      }
+    }
+
+    // Narxlarni tekshirish
+    const finalPrice = updates.price !== undefined
+      ? Number(updates.price)
+      : course.price;
+
+    let finalDiscount = course.discountPrice;
+
+    if (updates.price !== undefined) {
+      if (!Number.isFinite(finalPrice) || finalPrice < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Kurs narxi noto'g'ri",
+        });
+      }
+
+      updates.price = finalPrice;
+    }
+
+    if (updates.discountPrice !== undefined) {
+      finalDiscount =
+        updates.discountPrice === null || updates.discountPrice === ""
+          ? null
+          : Number(updates.discountPrice);
+
+      if (
+        finalDiscount !== null &&
+        (!Number.isFinite(finalDiscount) ||
+          finalDiscount < 0 ||
+          finalDiscount > finalPrice)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Chegirma narxi noto'g'ri",
+        });
+      }
+
+      updates.discountPrice = finalDiscount;
+    } else if (
+      finalDiscount !== null &&
+      finalDiscount > finalPrice
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Yangi narx mavjud chegirma narxidan past bo'lishi mumkin emas",
+      });
+    }
+
+    // Kursni publish qilish shartlari
+    if (updates.status === "published") {
+      const publishedLessons = await Lesson.countDocuments({
+        course: course._id,
+        isPublished: true,
+      });
+
+      if (publishedLessons === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Kursni publish qilish uchun kamida bitta e'lon qilingan dars kerak",
+        });
+      }
+
+      const categoryExists = await Category.exists({
+        _id: updates.category || course.category,
+      });
+
+      if (!categoryExists) {
+        return res.status(400).json({
+          success: false,
+          message: "Kurs kategoriyasi mavjud emas",
+        });
+      }
+    }
+
+    // Faqat ruxsat etilgan maydonlarni yangilash
+    Object.assign(course, updates);
+
+    // save() slug pre-validate hook'ini ham ishga tushiradi
+    await course.save();
+
     return res.status(200).json({
       success: true,
       message: "Kurs muvaffaqiyatli yangilandi",
       course,
     });
   } catch (error) {
+    if (isDuplicateError(error)) {
+      return res.status(409).json({
+        success: false,
+        message: "Bunday slug bilan kurs mavjud",
+      });
+    }
+
     next(error);
   }
 };
 
-
+// ==================================
+// 5. KURSNI ARXIVLASH
+// ==================================
 
 export const deleteCourse = async (req, res, next) => {
   try {
@@ -287,14 +449,7 @@ export const deleteCourse = async (req, res, next) => {
       });
     }
 
-    const course = await Course.findByIdAndUpdate(
-      id,
-      { status: "archived" },
-      {
-        new: true,
-        runValidators: true,
-      }
-    );
+    const course = await Course.findById(id);
 
     if (!course) {
       return res.status(404).json({
@@ -302,6 +457,9 @@ export const deleteCourse = async (req, res, next) => {
         message: "Kurs topilmadi",
       });
     }
+
+    course.status = "archived";
+    await course.save();
 
     return res.status(200).json({
       success: true,
@@ -311,3 +469,4 @@ export const deleteCourse = async (req, res, next) => {
     next(error);
   }
 };
+     
