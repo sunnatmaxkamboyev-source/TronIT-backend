@@ -1,4 +1,3 @@
-
 import express from "express";
 
 import {
@@ -7,9 +6,14 @@ import {
   getCourseById,
   updateCourse,
   deleteCourse,
+  getAdminCourses,
 } from "../controllers/courseController.js";
 
-import { protect, adminOnly } from "../middlewares/authMiddleware.js";
+import {
+  protect,
+  adminOnly,
+} from "../middlewares/authMiddleware.js";
+
 import validate from "../middlewares/validateMiddleware.js";
 
 import {
@@ -20,11 +24,31 @@ import {
 
 const router = express.Router();
 
-// Public routes
+// ==================================
+// ADMIN ROUTES
+// ==================================
+
+// Admin barcha kurslarni oladi
+// Bu route /:id dan oldin turishi shart
+router.get(
+  "/admin/all",
+  protect,
+  adminOnly,
+  getAdminCourses
+);
+
+// ==================================
+// PUBLIC ROUTES
+// ==================================
+
 router.get("/", getCourses);
+
 router.get("/:id", getCourseById);
 
-// Admin routes
+// ==================================
+// ADMIN COURSE MANAGEMENT
+// ==================================
+
 router.post(
   "/",
   protect,

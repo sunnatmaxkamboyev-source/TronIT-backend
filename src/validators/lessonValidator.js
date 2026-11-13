@@ -1,12 +1,9 @@
-
 import { z } from "zod";
 
-// MongoDB ObjectId tekshirish
 const objectIdSchema = z
   .string()
   .regex(/^[0-9a-fA-F]{24}$/, "MongoDB ID noto'g'ri");
 
-// Form-data boolean qiymatini tekshirish
 const booleanSchema = z.preprocess(
   (value) => {
     if (value === "true") return true;
@@ -16,33 +13,28 @@ const booleanSchema = z.preprocess(
   z.boolean().optional()
 );
 
-// Dars yaratish uchun schema
 export const createLessonSchema = z.object({
   body: z.object({
-    title: z
-      .string()
-      .trim()
-      .min(3, "Dars nomi kamida 3 ta belgidan iborat bo'lishi kerak")
-      .max(150, "Dars nomi 150 ta belgidan oshmasligi kerak"),
+    title: z.string().trim().min(3).max(150),
 
     description: z
       .string()
       .trim()
-      .max(2000, "Tavsif juda uzun")
+      .max(2000)
       .optional(),
 
     course: objectIdSchema,
 
     duration: z.coerce
       .number()
-      .int("Davomiylik butun son bo'lishi kerak")
-      .min(0, "Davomiylik manfiy bo'lishi mumkin emas")
-      .max(86400, "Davomiylik 24 soatdan oshmasligi kerak"),
+      .int()
+      .min(0)
+      .max(86400),
 
     order: z.coerce
       .number()
-      .int("Tartib raqami butun son bo'lishi kerak")
-      .min(0, "Tartib raqami manfiy bo'lishi mumkin emas"),
+      .int()
+      .min(1),
 
     isFree: booleanSchema,
   }).strict(),
@@ -51,15 +43,9 @@ export const createLessonSchema = z.object({
   query: z.object({}),
 });
 
-// Darsni yangilash uchun schema
 export const updateLessonSchema = z.object({
   body: z.object({
-    title: z
-      .string()
-      .trim()
-      .min(3)
-      .max(150)
-      .optional(),
+    title: z.string().trim().min(3).max(150).optional(),
 
     description: z
       .string()
@@ -79,10 +65,11 @@ export const updateLessonSchema = z.object({
     order: z.coerce
       .number()
       .int()
-      .min(0)
+      .min(1)
       .optional(),
 
     isFree: booleanSchema,
+    isPublished: booleanSchema,
   })
     .strict()
     .refine(
@@ -97,19 +84,18 @@ export const updateLessonSchema = z.object({
   query: z.object({}),
 });
 
-// Dars ID tekshirish
 export const lessonIdSchema = z.object({
   body: z.object({}),
+
   params: z.object({
     id: objectIdSchema,
   }),
+
   query: z.object({}),
 });
 
-// Darslar ro'yxati uchun query tekshirish
 export const getLessonsSchema = z.object({
   body: z.object({}),
-
   params: z.object({}),
 
   query: z.object({

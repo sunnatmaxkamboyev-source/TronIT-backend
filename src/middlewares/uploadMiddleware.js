@@ -1,17 +1,17 @@
-
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 
-const uploadDir = path.resolve("uploads/videos");
-
+const uploadDir = path.resolve(
+  process.cwd(),
+  "uploads/videos"
+);
 
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Fayl saqlash
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadDir);
@@ -23,7 +23,6 @@ const storage = multer.diskStorage({
   },
 });
 
-// Fayl formatini tekshirish
 const fileFilter = (req, file, cb) => {
   const extension = path.extname(file.originalname).toLowerCase();
 
@@ -32,14 +31,16 @@ const fileFilter = (req, file, cb) => {
     file.mimetype !== "video/mp4"
   ) {
     return cb(
-      new Error("Faqat MP4 formatidagi videolar qabul qilinadi!")
+      new multer.MulterError(
+        "LIMIT_UNEXPECTED_FILE",
+        "video"
+      )
     );
   }
 
   cb(null, true);
 };
 
-// Multer konfiguratsiyasi
 const upload = multer({
   storage,
   fileFilter,

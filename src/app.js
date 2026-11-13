@@ -16,13 +16,11 @@ import adminRoutes from "./routes/adminRoutes.js";
 
 const app = express();
 
-
-
+// Security
 app.disable("x-powered-by");
 app.use(helmet());
 
-
-
+// CORS
 const allowedOrigins = [
   process.env.FRONTEND_URL || "http://localhost:5173",
 ];
@@ -42,8 +40,7 @@ app.use(
   })
 );
 
-
-
+// Body parsers
 app.use(express.json({ limit: "10kb" }));
 
 app.use(
@@ -54,17 +51,15 @@ app.use(
   })
 );
 
-
+// Cookies
 app.use(cookieParser());
 
-
-
+// Logger
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 }
 
-
-
+// API rate limiter
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 100,
@@ -84,18 +79,16 @@ const apiLimiter = rateLimit({
 
 app.use("/api", apiLimiter);
 
-
-
+// Health check
 app.get("/", (req, res) => {
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     message: "TronIT API ishlayapti",
     environment: process.env.NODE_ENV || "development",
   });
 });
 
-
-
+// API routes
 app.use("/api/auth", authRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/courses", courseRoutes);
@@ -105,8 +98,7 @@ app.use("/api/progress", progressRoutes);
 app.use("/api/student", studentRoutes);
 app.use("/api/admin", adminRoutes);
 
-
-
+// 404 handler
 app.use((req, res) => {
   return res.status(404).json({
     success: false,
@@ -114,8 +106,7 @@ app.use((req, res) => {
   });
 });
 
-
-
+// Global error handler
 app.use((err, req, res, next) => {
   console.error("ERROR:", err);
 
@@ -123,6 +114,7 @@ app.use((err, req, res, next) => {
     return next(err);
   }
 
+  // Invalid JSON
   if (err.type === "entity.parse.failed") {
     return res.status(400).json({
       success: false,
@@ -130,6 +122,7 @@ app.use((err, req, res, next) => {
     });
   }
 
+  // Request body too large
   if (err.type === "entity.too.large") {
     return res.status(413).json({
       success: false,
@@ -137,19 +130,28 @@ app.use((err, req, res, next) => {
     });
   }
 
+  // Multer errors
   if (err.name === "MulterError") {
+    const multerMessages = {
+      LIMIT_FILE_SIZE: "Video hajmi 500 MB dan oshmasligi kerak",
+      LIMIT_FILE_COUNT: "Faqat bitta video yuklash mumkin",
+      LIMIT_UNEXPECTED_FILE: "Noto'g'ri fayl maydoni yuborildi",
+      LIMIT_FIELD_COUNT: "Maydonlar soni chegaradan oshdi",
+      LIMIT_PART_COUNT: "Yuborilgan qismlar soni chegaradan oshdi",
+    };
+
     const statusCode =
       err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
 
     return res.status(statusCode).json({
       success: false,
       message:
-        err.code === "LIMIT_FILE_SIZE"
-          ? "Video hajmi 500 MB dan oshmasligi kerak"
-          : err.message,
+        multerMessages[err.code] ||
+        "Fayl yuklashda xatolik yuz berdi",
     });
   }
 
+  // File type and CORS errors
   if (
     err.message?.includes("Faqat MP4") ||
     err.message?.includes("ruxsat etilmagan")
@@ -160,6 +162,7 @@ app.use((err, req, res, next) => {
     });
   }
 
+  // Mongoose validation error
   if (err.name === "ValidationError") {
     return res.status(400).json({
       success: false,
@@ -167,6 +170,7 @@ app.use((err, req, res, next) => {
     });
   }
 
+  // Invalid MongoDB ID
   if (err.name === "CastError") {
     return res.status(400).json({
       success: false,
@@ -174,6 +178,7 @@ app.use((err, req, res, next) => {
     });
   }
 
+  // Duplicate value
   if (err.code === 11000) {
     return res.status(409).json({
       success: false,
@@ -181,6 +186,7 @@ app.use((err, req, res, next) => {
     });
   }
 
+  // Other errors
   const statusCode = err.statusCode || err.status || 500;
 
   return res.status(statusCode >= 500 ? 500 : statusCode).json({

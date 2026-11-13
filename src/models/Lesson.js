@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 
 const resourceSchema = new mongoose.Schema(
@@ -7,13 +8,11 @@ const resourceSchema = new mongoose.Schema(
       trim: true,
       maxlength: 150,
     },
-
     url: {
       type: String,
       trim: true,
       maxlength: 2000,
     },
-
     type: {
       type: String,
       enum: ["pdf", "document", "link", "other"],
@@ -29,7 +28,7 @@ const lessonSchema = new mongoose.Schema(
       type: String,
       required: [true, "Dars nomi kiritilishi shart"],
       trim: true,
-      minlength: 2,
+      minlength: 3,
       maxlength: 150,
     },
 
@@ -52,24 +51,20 @@ const lessonSchema = new mongoose.Schema(
         type: String,
         required: true,
       },
-
       originalName: {
         type: String,
         required: true,
         maxlength: 255,
       },
-
       path: {
         type: String,
         required: true,
       },
-
       size: {
         type: Number,
         required: true,
         min: 1,
       },
-
       mimetype: {
         type: String,
         enum: ["video/mp4"],
@@ -81,6 +76,7 @@ const lessonSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0,
+      max: 86400,
     },
 
     order: {
@@ -120,7 +116,7 @@ const lessonSchema = new mongoose.Schema(
   }
 );
 
-// Bir kurs ichida order takrorlanmasligi kerak
+
 lessonSchema.index(
   { course: 1, order: 1 },
   { unique: true }

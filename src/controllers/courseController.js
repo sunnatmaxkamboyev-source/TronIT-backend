@@ -1,11 +1,10 @@
-
 import mongoose from "mongoose";
 
 import Course from "../models/Course.js";
 import Lesson from "../models/Lesson.js";
 import Category from "../models/Category.js";
 
-// Ruxsat berilgan maydonlar
+// Ruxsat berilgan yangilash maydonlari
 const allowedFields = [
   "title",
   "shortDescription",
@@ -26,7 +25,7 @@ const allowedFields = [
   "status",
 ];
 
-// MongoDB duplicate key xatosini aniqlash
+// Duplicate key xatosini aniqlash
 const isDuplicateError = (error) => error.code === 11000;
 
 // ==================================
@@ -54,10 +53,17 @@ export const createCourse = async (req, res, next) => {
       isFeatured,
     } = req.body;
 
-    if (!title || !shortDescription || !description || !category || !instructorName) {
+    if (
+      !title ||
+      !shortDescription ||
+      !description ||
+      !category ||
+      !instructorName
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Title, tavsif, kategoriya va o'qituvchi ma'lumotlari kiritilishi shart",
+        message:
+          "Title, tavsif, kategoriya va o'qituvchi ma'lumotlari kiritilishi shart",
       });
     }
 
@@ -77,9 +83,10 @@ export const createCourse = async (req, res, next) => {
       });
     }
 
-    const coursePrice = price === undefined || price === ""
-      ? 0
-      : Number(price);
+    const coursePrice =
+      price === undefined || price === ""
+        ? 0
+        : Number(price);
 
     const courseDiscount =
       discountPrice === undefined || discountPrice === ""
@@ -241,7 +248,7 @@ export const getCourses = async (req, res, next) => {
 };
 
 // ==================================
-// 3. BITTA KURSNI OLISH
+// 3. BITTA OCHIQ KURSNI OLISH
 // ==================================
 
 export const getCourseById = async (req, res, next) => {
@@ -339,9 +346,10 @@ export const updateCourse = async (req, res, next) => {
     }
 
     // Narxlarni tekshirish
-    const finalPrice = updates.price !== undefined
-      ? Number(updates.price)
-      : course.price;
+    const finalPrice =
+      updates.price !== undefined
+        ? Number(updates.price)
+        : course.price;
 
     let finalDiscount = course.discountPrice;
 
@@ -381,11 +389,12 @@ export const updateCourse = async (req, res, next) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "Yangi narx mavjud chegirma narxidan past bo'lishi mumkin emas",
+        message:
+          "Yangi narx mavjud chegirma narxidan past bo'lishi mumkin emas",
       });
     }
 
-    // Kursni publish qilish shartlari
+    // Publish qilish shartlari
     if (updates.status === "published") {
       const publishedLessons = await Lesson.countDocuments({
         course: course._id,
@@ -395,7 +404,8 @@ export const updateCourse = async (req, res, next) => {
       if (publishedLessons === 0) {
         return res.status(400).json({
           success: false,
-          message: "Kursni publish qilish uchun kamida bitta e'lon qilingan dars kerak",
+          message:
+            "Kursni publish qilish uchun kamida bitta e'lon qilingan dars kerak",
         });
       }
 
@@ -411,10 +421,8 @@ export const updateCourse = async (req, res, next) => {
       }
     }
 
-    // Faqat ruxsat etilgan maydonlarni yangilash
     Object.assign(course, updates);
 
-    // save() slug pre-validate hook'ini ham ishga tushiradi
     await course.save();
 
     return res.status(200).json({
@@ -469,4 +477,89 @@ export const deleteCourse = async (req, res, next) => {
     next(error);
   }
 };
-     
+
+// ==================================
+// 6. ADMIN BARCHA KURSLARNI OLISH
+// ==================================
+
+export const getAdminCourses = async (req, res, next) => {
+  try {
+    const {
+      status,
+      category,
+      search,
+    } = req.query;
+
+    const pageNumber = Math.min(
+      100000,
+      Math.max(1, Number(req.query.page) || 1)
+    );
+
+    const limitNumber = Math.min(
+      50,
+      Math.max(1, Number(req.query.limit) || 10)
+    );
+
+    const filter = {};
+
+    // Status bo'yicha filter
+    if (status) {
+      if (!["draft", "published", "archived"].includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Kurs statusi noto'g'ri",
+        });
+      }
+
+      filter.status = status;
+    }
+
+    // Kategoriya bo'yicha filter
+    if (category) {
+      if (!mongoose.isValidObjectId(category)) {
+        return res.status(400).json({
+          success: false,
+          message: "Category ID noto'g'ri",
+        });
+      }
+
+      filter.category = category;
+    }
+
+    // Qidiruv
+    if (search) {
+      if (typeof search !== "string" || search.trim().length > 100) {
+        return res.status(400).json({
+          success: false,
+          message: "Qidiruv so'rovi noto'g'ri",
+        });
+      }
+
+      filter.$text = {
+        $search: search.trim(),
+      };
+    }
+
+    const [courses, total] = await Promise.all([
+      Course.find(filter)
+        .populate("category", "name slug icon")
+        .populate("createdBy", "firstName lastName")
+        .sort({ createdAt: -1 })
+        .skip((pageNumber - 1) * limitNumber)
+        .limit(limitNumber)
+        .lean(),
+
+      Course.countDocuments(filter),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      total,
+      page: pageNumber,
+      pages: Math.ceil(total / limitNumber),
+      courses,
+    });
+  } catch (error) {
+    next(error);
+  }
+};

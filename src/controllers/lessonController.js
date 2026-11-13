@@ -9,17 +9,22 @@ import Lesson from "../models/Lesson.js";
 import Course from "../models/Course.js";
 import Enrollment from "../models/Enrollment.js";
 
-const VIDEO_DIR = path.resolve(process.cwd(), "uploads/videos");
+const VIDEO_DIR = path.resolve(
+  process.cwd(),
+  "uploads/videos"
+);
+
 const MAX_VIDEO_SIZE = 500 * 1024 * 1024;
 const MAX_DURATION = 86400;
 
-// Upload qilingan faylni o'chirish
+// Yuklangan faylni tozalash
 const removeUploadedFile = async (file) => {
   if (!file?.path) return;
+
   await fs.unlink(file.path).catch(() => {});
 };
 
-// Faqat xavfsiz video fayl nomiga ruxsat
+// Xavfsiz video yo'lini olish
 const getSafeVideoPath = (filename) => {
   if (
     typeof filename !== "string" ||
@@ -50,8 +55,23 @@ const verifyMp4 = async (file) => {
   );
 };
 
+// API javobida ichki fayl yo'llarini yashirish
+const safeLesson = (lesson) => {
+  const data = lesson.toObject
+    ? lesson.toObject()
+    : { ...lesson };
+
+  if (data.video) {
+    delete data.video.path;
+    delete data.video.filename;
+    delete data.video.originalName;
+  }
+
+  return data;
+};
+
 // ==================================
-// 1. DARS YUKLASH
+// 1. DARS VA VIDEO YUKLASH
 // ==================================
 
 export const uploadLesson = async (req, res, next) => {
@@ -72,7 +92,6 @@ export const uploadLesson = async (req, res, next) => {
       });
     }
 
-    // Faylning haqiqiy formatini tekshirish
     const isValidVideo = await verifyMp4(req.file);
 
     if (!isValidVideo) {
@@ -84,11 +103,16 @@ export const uploadLesson = async (req, res, next) => {
       });
     }
 
+    const orderNumber = Number(order);
+    const durationNumber = Number(duration ?? 0);
+
     if (
       typeof title !== "string" ||
       !title.trim() ||
       typeof course !== "string" ||
-      !order
+      order === undefined ||
+      order === null ||
+      order === ""
     ) {
       await removeUploadedFile(req.file);
 
@@ -107,13 +131,10 @@ export const uploadLesson = async (req, res, next) => {
       });
     }
 
-    const orderNumber = Number(order);
-    const durationNumber = Number(duration ?? 0);
-
     if (
       !Number.isInteger(orderNumber) ||
       orderNumber < 1 ||
-      !Number.isFinite(durationNumber) ||
+      !Number.isInteger(durationNumber) ||
       durationNumber < 0 ||
       durationNumber > MAX_DURATION
     ) {
@@ -145,13 +166,11 @@ export const uploadLesson = async (req, res, next) => {
       });
     }
 
-    const isFreeValue =
-      isFree === true || isFree === "true";
-
     const lesson = await Lesson.create({
       title: title.trim(),
       description,
       course,
+
       video: {
         filename: req.file.filename,
         originalName: req.file.originalname,
@@ -160,19 +179,28 @@ export const uploadLesson = async (req, res, next) => {
         size: req.file.size,
         mimetype: "video/mp4",
       },
+
       duration: durationNumber,
       order: orderNumber,
-      isFree: isFreeValue,
+      isFree: isFree === true,
       createdBy: req.user._id,
     });
 
     return res.status(201).json({
       success: true,
       message: "Dars muvaffaqiyatli yuklandi",
-      lesson,
+      lesson: safeLesson(lesson),
     });
   } catch (error) {
     await removeUploadedFile(req.file);
+
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "Bu kursda ushbu tartib raqami band",
+      });
+    }
+
     next(error);
   }
 };
@@ -183,34 +211,26 @@ export const uploadLesson = async (req, res, next) => {
 
 export const getLessons = async (req, res, next) => {
   try {
-    const { course } = req.query;
+    const {
+      course,
+      page = 1,
+      limit = 10,
+    } = req.validated?.query ?? req.query;
 
-    const pageNumber = Math.max(
-      1,
-      Math.min(100000, Number(req.query.page) || 1)
-    );
-
-    const limitNumber = Math.max(
-      1,
-      Math.min(50, Number(req.query.limit) || 10)
-    );
+    const pageNumber = Math.min(100000, Math.max(1, Number(page) || 1));
+    const limitNumber = Math.min(50, Math.max(1, Number(limit) || 10));
 
     const filter = {
       isPublished: true,
     };
 
     if (course) {
-      if (!mongoose.isValidObjectId(course)) {
-        return res.status(400).json({
-          success: false,
-          message: "Course ID noto'g'ri",
-        });
-      }
+      const selectedCourse = await Course.findOne({
+        _id: course,
+        status: "published",
+      }).select("_id");
 
-      const selectedCourse = await Course.findById(course)
-        .select("status");
-
-      if (!selectedCourse || selectedCourse.status !== "published") {
+      if (!selectedCourse) {
         return res.status(404).json({
           success: false,
           message: "Published kurs topilmadi",
@@ -223,7 +243,9 @@ export const getLessons = async (req, res, next) => {
         status: "published",
       });
 
-      filter.course = { $in: publishedCourseIds };
+      filter.course = {
+        $in: publishedCourseIds,
+      };
     }
 
     const [lessons, total] = await Promise.all([
@@ -256,13 +278,6 @@ export const getLessons = async (req, res, next) => {
 export const getLessonById = async (req, res, next) => {
   try {
     const { id } = req.params;
-
-    if (!mongoose.isValidObjectId(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Dars ID noto'g'ri",
-      });
-    }
 
     const lesson = await Lesson.findOne({
       _id: id,
@@ -305,13 +320,6 @@ export const streamLessonVideo = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.isValidObjectId(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Dars ID noto'g'ri",
-      });
-    }
-
     const lesson = await Lesson.findById(id);
 
     if (!lesson || !lesson.isPublished) {
@@ -321,7 +329,6 @@ export const streamLessonVideo = async (req, res, next) => {
       });
     }
 
-    // Kurs published bo'lishi shart
     const course = await Course.findOne({
       _id: lesson.course,
       status: "published",
@@ -334,13 +341,14 @@ export const streamLessonVideo = async (req, res, next) => {
       });
     }
 
-    // Pullik dars uchun enrollment tekshiruvi
     if (!lesson.isFree) {
       const enrollment = await Enrollment.findOne({
         student: req.user._id,
         course: lesson.course,
         status: "active",
-        paymentStatus: { $in: ["free", "paid"] },
+        paymentStatus: {
+          $in: ["free", "paid"],
+        },
       });
 
       if (!enrollment) {
@@ -446,6 +454,93 @@ export const streamLessonVideo = async (req, res, next) => {
       });
     }
 
+    next(error);
+  }
+};
+
+// ==================================
+// 5. DARSNI YANGILASH
+// ==================================
+
+export const updateLesson = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const lesson = await Lesson.findById(id);
+
+    if (!lesson) {
+      return res.status(404).json({
+        success: false,
+        message: "Dars topilmadi",
+      });
+    }
+
+    const updates = req.body;
+
+    if (updates.course) {
+      const selectedCourse = await Course.findById(updates.course);
+
+      if (!selectedCourse || selectedCourse.status === "archived") {
+        return res.status(400).json({
+          success: false,
+          message: "Tanlangan kurs mavjud emas yoki arxivlangan",
+        });
+      }
+    }
+
+    Object.assign(lesson, updates);
+
+    await lesson.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Dars muvaffaqiyatli yangilandi",
+      lesson: safeLesson(lesson),
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "Bu kursda ushbu tartib raqami band",
+      });
+    }
+
+    next(error);
+  }
+};
+
+// ==================================
+// 6. DARSNI O'CHIRISH
+// ==================================
+
+export const deleteLesson = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const lesson = await Lesson.findById(id);
+
+    if (!lesson) {
+      return res.status(404).json({
+        success: false,
+        message: "Dars topilmadi",
+      });
+    }
+
+    const videoPath = getSafeVideoPath(lesson.video?.filename);
+
+    await lesson.deleteOne();
+
+    await fs.unlink(videoPath).catch((error) => {
+      if (error.code !== "ENOENT") {
+        console.error("Video faylni o'chirishda xato:", error);
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Dars muvaffaqiyatli o'chirildi",
+    });
+  } catch (error) {
     next(error);
   }
 };

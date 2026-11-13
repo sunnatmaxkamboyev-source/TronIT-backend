@@ -6,6 +6,8 @@ import {
   getLessons,
   getLessonById,
   streamLessonVideo,
+  updateLesson,
+  deleteLesson,
 } from "../controllers/lessonController.js";
 
 import {
@@ -18,17 +20,36 @@ import validate from "../middlewares/validateMiddleware.js";
 
 import {
   createLessonSchema,
+  updateLessonSchema,
+  lessonIdSchema,
+  getLessonsSchema,
 } from "../validators/lessonValidator.js";
 
 const router = express.Router();
 
-// Barcha darslarni olish
-router.get("/", getLessons);
+// Barcha nashr qilingan darslar
+router.get(
+  "/",
+  validate(getLessonsSchema),
+  getLessons
+);
 
-// Bitta darsni olish
-router.get("/:id", getLessonById);
+// Video streaming
+router.get(
+  "/:id/video",
+  protect,
+  validate(lessonIdSchema),
+  streamLessonVideo
+);
 
-// Yangi dars va video yuklash
+// Bitta nashr qilingan dars
+router.get(
+  "/:id",
+  validate(lessonIdSchema),
+  getLessonById
+);
+
+// Dars va video yuklash
 router.post(
   "/",
   protect,
@@ -38,7 +59,22 @@ router.post(
   uploadLesson
 );
 
-// Video streaming
-router.get("/:id/video", protect, streamLessonVideo);
+// Darsni yangilash
+router.patch(
+  "/:id",
+  protect,
+  adminOnly,
+  validate(updateLessonSchema),
+  updateLesson
+);
+
+
+router.delete(
+  "/:id",
+  protect,
+  adminOnly,
+  validate(lessonIdSchema),
+  deleteLesson
+);
 
 export default router;
