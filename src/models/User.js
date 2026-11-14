@@ -26,7 +26,10 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       maxlength: 100,
-      match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Email formati noto'g'ri"],
+      match: [
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+        "Email formati noto'g'ri",
+      ],
     },
 
     password: {
@@ -73,6 +76,36 @@ const userSchema = new mongoose.Schema(
       default: false,
     },
 
+    emailVerificationCodeHash: {
+      type: String,
+      default: undefined,
+      select: false,
+    },
+
+    emailVerificationExpires: {
+      type: Date,
+      default: null,
+      select: false,
+    },
+
+    emailVerificationAttempts: {
+      type: Number,
+      default: 0,
+      min: 0,
+      select: false,
+    },
+
+    emailVerificationResendAt: {
+      type: Date,
+      default: null,
+      select: false,
+    },
+
+    emailVerifiedAt: {
+      type: Date,
+      default: null,
+    },
+
     lastLogin: {
       type: Date,
       default: null,
@@ -84,15 +117,17 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-
+// Password hashing
 userSchema.pre("save", async function () {
   if (!this.isModified("password")) return;
 
   this.password = await bcrypt.hash(this.password, 12);
 });
 
-
-userSchema.methods.comparePassword = async function (candidatePassword) {
+// Password comparison
+userSchema.methods.comparePassword = async function (
+  candidatePassword
+) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 

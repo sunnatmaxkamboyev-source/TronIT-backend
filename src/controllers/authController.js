@@ -1,12 +1,16 @@
+
 import User from "../models/User.js";
 import jwt from "jsonwebtoken";
 
+import {
+  registerUser,
+  verifyEmail as verifyEmailService,
+  resendVerificationCode,
+  loginUser,
+} from "../services/authService.js";
 
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
-
-
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
-
 
 const generateToken = (userId) => {
   if (!process.env.JWT_SECRET) {
@@ -30,7 +34,6 @@ const cookieOptions = {
   path: "/",
 };
 
-
 const sendToken = (user, statusCode, res) => {
   const token = generateToken(user._id);
 
@@ -48,100 +51,25 @@ const sendToken = (user, statusCode, res) => {
   });
 };
 
-
+// REGISTER
 export const register = async (req, res, next) => {
   try {
-    const { firstName, lastName, email, password } = req.body || {};
+    const user = await registerUser(req.body);
 
-    if (!firstName || !lastName || !email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Barcha majburiy maydonlarni to'ldiring",
-      });
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-
-    const existingUser = await User.findOne({
-      email: normalizedEmail,
+    return res.status(201).json({
+      success: true,
+      message: "Tasdiqlash kodi emailingizga yuborildi",
+      email: user.email,
     });
-
-    if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        message: "Bu email allaqachon ro'yxatdan o'tgan",
-      });
-    }
-
-    const user = await User.create({
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      email: normalizedEmail,
-      password,
-    });
-
-    return sendToken(user, 201, res);
   } catch (error) {
-    if (error.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: "Bu email allaqachon ro'yxatdan o'tgan",
-      });
-    }
-
     next(error);
   }
 };
 
-
-export const login = async (req, res, next) => {
+// VERIFY EMAIL
+export const verifyEmail = async (req, res, next) => {
   try {
-    const { email, password } = req.body || {};
-
-    if (
-      typeof email !== "string" ||
-      typeof password !== "string" ||
-      !email.trim() ||
-      !password
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Email va parolni to'g'ri kiriting",
-      });
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-
-    const user = await User.findOne({
-      email: normalizedEmail,
-    }).select("+password");
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: "Email yoki parol noto'g'ri",
-      });
-    }
-
-    const isPasswordCorrect =
-      await user.comparePassword(password);
-
-    if (!isPasswordCorrect) {
-      return res.status(401).json({
-        success: false,
-        message: "Email yoki parol noto'g'ri",
-      });
-    }
-
-    if (!user.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: "Akkauntingiz vaqtincha bloklangan",
-      });
-    }
-
-    user.lastLogin = new Date();
-    await user.save();
+    const user = await verifyEmailService(req.body);
 
     return sendToken(user, 200, res);
   } catch (error) {
@@ -149,7 +77,32 @@ export const login = async (req, res, next) => {
   }
 };
 
+// RESEND VERIFICATION
+export const resendVerification = async (req, res, next) => {
+  try {
+    const result = await resendVerificationCode(req.body);
 
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// LOGIN
+export const login = async (req, res, next) => {
+  try {
+    const user = await loginUser(req.body);
+
+    return sendToken(user, 200, res);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// LOGOUT
 export const logout = (req, res) => {
   res.clearCookie("tronit_token", cookieOptions);
 
@@ -159,7 +112,7 @@ export const logout = (req, res) => {
   });
 };
 
-
+// GET ME
 export const getMe = async (req, res, next) => {
   try {
     const user = await User.findById(req.user._id)
